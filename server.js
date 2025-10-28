@@ -6,6 +6,7 @@ import express from 'express';
 import crypto from 'crypto';
 import Redis from 'ioredis';
 import fetch from 'node-fetch';
+import RateLimit from 'express-rate-limit';
 
 const app = express();
 app.use(express.json());
@@ -15,6 +16,14 @@ const API_KEY = process.env.MCP_API_KEY || 'changeme';
 const MODEL = process.env.MODEL_NAME || 'gemini-flash';
 const GEMINI_KEY = process.env.GEMINI_API_KEY || '';
 const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
+
+
+// Rate limiter for /normalize_event endpoint
+const normalizeLimiter = RateLimit({
+  windowMs: 15 * 60 * 1000,   // 15 minutes
+  max: 100,                   // limit each IP to 100 requests per windowMs
+  message: { error: "Too many normalize_event requests, please try again later." }
+});
 
 // Simple Bearer auth for all endpoints
 app.use((req, res, next) => {
@@ -31,7 +40,7 @@ app.get('/health', (_, res) => {
 });
 
 // Normalize & dedupe (idempotency key = message_id)
-app.post('/normalize_event', async (req, res) => {
+app.post('/normalize_event', normalizeLimiter, async (req, res) => {
   const { message_id = '', phone = '', text = '', client_id = '' } = req.body || {};
   let duplicate = false;
   if (redis && message_id) {
